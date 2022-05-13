@@ -1,40 +1,45 @@
-const url = 'https://raw.githubusercontent.com/freeCodeCamp/ProjectReferenceData/master/cyclist-data.json';
+const url = 'https://raw.githubusercontent.com/freeCodeCamp/ProjectReferenceData/master/GDP-data.json';
 
-const width = 640;
-const height = 480;
-const padding = 60;
+const width = 800;
+const height = 420;
+const padding = 80;
 
 async function main() {
   const dataset = await getDataset();
   const svg = createSvg();
-  const data = transformData(dataset);
 
-  const xScale = createXScale(data);
-  const yScale = createYScale(data);
+  const data = dataset.data.map(d => ({
+    date: new Date(d[0]),
+    gdp: Number(d[1]),
+    ori: d,
+  }));
 
-  createXAxis(svg, xScale);
+  const dates = data.map(d => d.date);
+  const values = data.map(d => d.gdp);
+
+  const xScale = createXScale(dates);
+  const yScale = createYScale(values);
+
   createYAxis(svg, yScale);
-  createLegend(data);
+  createXAxis(svg, xScale);
 
-  const tooltip = d3.select('#tooltip');
+  const tooltip = createTooltip();
 
   svg
-    .selectAll('circle')
+    .selectAll('rect')
     .data(data)
     .enter()
-    .append('circle')
-    .attr('class', 'dot')
-    .attr('data-xvalue', d => d.year)
-    .attr('data-yvalue', d => d.time)
-    .attr('cx', d => xScale(d.year))
-    .attr('cy', d => yScale(d.time))
-    .attr('r', 5)
-    .attr('fill', d => generateColorByNationality(d.original.Nationality))
+    .append('rect')
+    .attr('fill', 'black')
+    .attr('class', 'bar')
+    .attr('data-date', d => d.ori[0])
+    .attr('data-gdp', d => d.gdp)
+    .attr('width', 10)
+    .attr('height', d => height - padding - yScale(d.gdp))
+    .attr('y', d => yScale(d.gdp))
+    .attr('x', d => xScale(d.date))
     .on('mouseover', (_, d) => {
-      tooltip.style('opacity', 1);
-      tooltip.attr('data-date', d.time);
-      tooltip.attr('data-year', d.year);
-      tooltip.text(JSON.stringify(d));
+      tooltip.attr('data-date', d.ori[0]).style('opacity', 1).text(`GDP: ${d.gdp} | date: ${d.date}`);
     })
     .on('mouseout', () => tooltip.style('opacity', 0));
 }
@@ -44,102 +49,42 @@ async function getDataset() {
   return await resp.json();
 }
 
-function transformData(dataset) {
-  return dataset.map(d => {
-    const split = d.Time.split(':');
-    const minutes = Number(split[0]);
-    const seconds = Number(split[1]);
-
-    // Change these three lines and the test won't pass. ¯\_(ツ)_/¯
-    const date = new Date(null);
-    date.setMinutes(minutes);
-    date.setSeconds(seconds);
-
-    return {
-      year: d.Year,
-      time: date,
-      original: d,
-    };
-  });
-}
-
 function createSvg() {
-  return d3.select('body').append('svg').attr('width', width).attr('height', height);
+  return d3.select('body').append('svg').attr('id', 'dat-viz').attr('height', height).attr('width', width);
 }
 
 function createXScale(data) {
-  data = data.map(d => d.year);
   return d3
-    .scaleLinear()
-    .domain(d3.extent(data))
-    .rangeRound([padding, width - padding])
-    .nice();
+    .scaleTime()
+    .domain(d3.extent(data, d => d))
+    .range([padding, width - padding]);
 }
 
 function createYScale(data) {
-  data = data.map(d => d.time);
-  return (
-    d3
-      .scaleUtc()
-      // .domain(d3.extent(data))
-      .domain([d3.max(data), d3.min(data)])
-      .rangeRound([height - padding, padding])
-      .nice()
-  );
+  return d3
+    .scaleLinear()
+    .domain([0, d3.max(data)])
+    .range([height - padding, padding]);
+}
+
+function createYAxis(svg, yScale) {
+  const yAxis = d3.axisLeft(yScale);
+
+  svg.append('g').attr('id', 'y-axis').attr('transform', `translate(${padding}, 0)`).call(yAxis);
 }
 
 function createXAxis(svg, xScale) {
-  const axis = d3.axisBottom(xScale).tickFormat(d => d.toString());
+  const xAxis = d3.axisBottom(xScale);
 
   svg
     .append('g')
     .attr('id', 'x-axis')
     .attr('transform', `translate(0, ${height - padding})`)
-    .call(axis);
+    .call(xAxis);
 }
 
-function createYAxis(svg, yScale) {
-  const axis = d3.axisLeft(yScale).tickFormat(d3.utcFormat('%M:%S'));
-
-  svg.append('g').attr('id', 'y-axis').attr('transform', `translate(${padding}, 0)`).call(axis);
-}
-
-function createLegend(data) {
-  data = [...new Set(data.map(d => d.original.Nationality))].map(d => ({
-    nationality: d,
-    color: generateColorByNationality(d),
-  }));
-
-  const svg = d3.select('body').append('svg').attr('id', 'legend').attr('height', 320);
-
-  svg
-    .selectAll('circle')
-    .data(data)
-    .enter()
-    .append('circle')
-    .attr('r', 7)
-    .attr('cx', 20)
-    .attr('cy', (_, i) => i * 25 + 20)
-    .attr('fill', d => d.color);
-
-  svg
-    .selectAll('text')
-    .data(data)
-    .enter()
-    .append('text')
-    .attr('x', 35)
-    .attr('y', (_, i) => i * 25 + 25)
-    .attr('fill', d => d.color)
-    .text(d => d.nationality);
-}
-
-function generateColorByNationality(nationality) {
-  const sum = nationality.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-
-  const seed = Number(`0.${sum}`);
-  const hex = Math.floor(seed * 16777215).toString(16);
-
-  return `#${hex}`;
+function createTooltip() {
+  return d3.select('body').append('div').style('opacity', 0).attr('id', 'tooltip');
 }
 
 main();
